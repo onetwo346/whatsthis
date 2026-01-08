@@ -206,6 +206,9 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 #camera-canvas {
@@ -230,7 +233,9 @@ body {
     position: absolute;
     border: 2px solid var(--accent-blue);
     box-shadow: 0 0 20px var(--accent-glow);
-    transition: all 0.3s ease;
+    transition: opacity 0.2s ease;
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 .corner {
@@ -249,13 +254,14 @@ body {
     position: absolute;
     top: -40px;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%) translateZ(0);
     background: var(--bg-card);
     backdrop-filter: blur(10px);
     padding: 0.5rem 1rem;
     border-radius: 20px;
     white-space: nowrap;
     border: 1px solid var(--glass-border);
+    will-change: opacity;
 }
 
 #object-name {
@@ -626,9 +632,67 @@ body {
     align-items: center;
 }
 
+.setting-item.api-key-section {
+    flex-direction: column;
+    align-items: stretch;
+}
+
 .setting-item label {
     font-weight: 500;
     font-size: 1rem;
+}
+
+.api-hint {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin: 0.3rem 0 0.8rem 0;
+}
+
+#api-key-input {
+    width: 100%;
+    background: var(--bg-dark);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    padding: 0.8rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+}
+
+#api-key-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.save-api-btn {
+    width: 100%;
+    background: var(--accent-blue);
+    color: var(--bg-dark);
+    border: none;
+    padding: 0.8rem;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 0.8rem;
+}
+
+.save-api-btn:hover {
+    box-shadow: 0 5px 20px var(--accent-glow);
+    transform: translateY(-2px);
+}
+
+.get-key-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+    font-size: 0.9rem;
+    display: block;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.get-key-link:hover {
+    opacity: 0.8;
 }
 
 .setting-item select {

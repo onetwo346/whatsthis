@@ -1,15 +1,19 @@
 class WhatIsThis {
     constructor() {
-        this.currentScreen = 'intro';
         this.cameraStream = null;
         this.currentCamera = 'environment';
+        this.currentScreen = 'intro';
         this.scanHistory = this.loadHistory();
         this.settings = this.loadSettings();
-        this.isScanning = false;
+        this.currentScanResult = null;
         this.continuousScan = false;
         this.model = null;
         this.detectionInterval = null;
-        
+        this.isScanning = false;
+        this.lastDetectionTime = 0;
+        this.lastPrediction = null;
+        this.boundingBoxCache = { x: 0, y: 0, width: 0, height: 0 };
+        this.geminiApiKey = this.loadApiKey();
         this.init();
     }
 
@@ -136,6 +140,8 @@ class WhatIsThis {
         });
         document.getElementById('clear-history-btn').addEventListener('click', () => this.clearHistory());
 
+        document.getElementById('save-api-key-btn').addEventListener('click', () => this.saveApiKey());
+
         document.querySelectorAll('.close-modal').forEach(btn => {
             btn.addEventListener('click', () => this.closeModals());
         });
@@ -219,7 +225,11 @@ class WhatIsThis {
         
         this.detectionInterval = setInterval(async () => {
             if (this.model && !this.isScanning) {
-                await this.detectObjectsInView();
+                const now = Date.now();
+                if (now - this.lastDetectionTime >= 800) {
+                    this.lastDetectionTime = now;
+                    await this.detectObjectsInView();
+                }
             }
         }, 1000);
     }
@@ -241,18 +251,13 @@ class WhatIsThis {
             if (predictions.length > 0) {
                 const topPrediction = predictions[0];
                 if (topPrediction.score > 0.6) {
-                    this.showLiveBoundingBox(topPrediction);
+                    this.lastPrediction = topPrediction;
+                    requestAnimationFrame(() => this.showLiveBoundingBox(topPrediction));
                 } else {
-                    const boundingBox = document.getElementById('bounding-box');
-                    const objectLabel = document.getElementById('object-label');
-                    boundingBox.classList.add('hidden');
-                    objectLabel.classList.add('hidden');
+                    this.hideBoundingBox();
                 }
             } else {
-                const boundingBox = document.getElementById('bounding-box');
-                const objectLabel = document.getElementById('object-label');
-                boundingBox.classList.add('hidden');
-                objectLabel.classList.add('hidden');
+                this.hideBoundingBox();
             }
         } catch (error) {
             console.error('Detection error:', error);
@@ -263,18 +268,55 @@ class WhatIsThis {
         const boundingBox = document.getElementById('bounding-box');
         const objectLabel = document.getElementById('object-label');
         
+        if (!boundingBox || !objectLabel) return;
+        
         const [x, y, width, height] = prediction.bbox;
         
-        boundingBox.style.left = x + 'px';
-        boundingBox.style.top = y + 'px';
-        boundingBox.style.width = width + 'px';
-        boundingBox.style.height = height + 'px';
+        const deltaX = Math.abs(x - this.boundingBoxCache.x);
+        const deltaY = Math.abs(y - this.boundingBoxCache.y);
+        const deltaW = Math.abs(width - this.boundingBoxCache.width);
+        const deltaH = Math.abs(height - this.boundingBoxCache.height);
         
-        boundingBox.classList.remove('hidden');
-        objectLabel.classList.remove('hidden');
+        if (deltaX > 5 || deltaY > 5 || deltaW > 5 || deltaH > 5) {
+            boundingBox.style.left = x + 'px';
+            boundingBox.style.top = y + 'px';
+            boundingBox.style.width = width + 'px';
+            boundingBox.style.height = height + 'px';
+            
+            this.boundingBoxCache = { x, y, width, height };
+        }
         
-        document.getElementById('object-name').textContent = this.formatObjectName(prediction.class);
-        document.getElementById('confidence').textContent = (prediction.score * 100).toFixed(1) + '%';
+        if (boundingBox.classList.contains('hidden')) {
+            boundingBox.classList.remove('hidden');
+            objectLabel.classList.remove('hidden');
+        }
+        
+        const objectName = document.getElementById('object-name');
+        const confidence = document.getElementById('confidence');
+        
+        if (objectName && confidence) {
+            const formattedName = this.formatObjectName(prediction.class);
+            const confidenceText = (prediction.score * 100).toFixed(1) + '%';
+            
+            if (objectName.textContent !== formattedName) {
+                objectName.textContent = formattedName;
+            }
+            if (confidence.textContent !== confidenceText) {
+                confidence.textContent = confidenceText;
+            }
+        }
+    }
+    
+    hideBoundingBox() {
+        const boundingBox = document.getElementById('bounding-box');
+        const objectLabel = document.getElementById('object-label');
+        
+        if (boundingBox && !boundingBox.classList.contains('hidden')) {
+            boundingBox.classList.add('hidden');
+        }
+        if (objectLabel && !objectLabel.classList.contains('hidden')) {
+            objectLabel.classList.add('hidden');
+        }
     }
 
     stopCamera() {
@@ -283,10 +325,9 @@ class WhatIsThis {
             this.cameraStream.getTracks().forEach(track => track.stop());
             this.cameraStream = null;
         }
-        const boundingBox = document.getElementById('bounding-box');
-        const objectLabel = document.getElementById('object-label');
-        boundingBox.classList.add('hidden');
-        objectLabel.classList.add('hidden');
+        this.hideBoundingBox();
+        this.lastPrediction = null;
+        this.boundingBoxCache = { x: 0, y: 0, width: 0, height: 0 };
     }
 
     async flipCamera() {
@@ -354,30 +395,130 @@ class WhatIsThis {
         }
 
         try {
-            const predictions = await this.model.detect(video);
-            
-            if (predictions.length === 0) {
-                this.showNotification('No objects detected. Try pointing at something else.');
-                return;
+            if (this.geminiApiKey) {
+                await this.performGeminiRecognition(video);
+            } else {
+                await this.performBasicRecognition(video);
             }
-
-            const topPrediction = predictions.sort((a, b) => b.score - a.score)[0];
-            
-            if (topPrediction.score < 0.5) {
-                this.showNotification('Low confidence. Try better lighting or closer view.');
-                return;
-            }
-
-            const result = this.enrichObjectData(topPrediction);
-            this.currentScanResult = result;
-            
-            this.showBoundingBox(topPrediction);
-            this.displayResult(result);
-            
         } catch (error) {
             console.error('Recognition error:', error);
             this.showNotification('Detection failed. Please try again.');
         }
+    }
+
+    async performBasicRecognition(video) {
+        if (!this.model) {
+            this.showNotification('AI model not loaded. Please wait...');
+            return;
+        }
+
+        const predictions = await this.model.detect(video);
+        
+        if (predictions.length === 0) {
+            this.showNotification('No objects detected. Add Gemini API key in settings for better recognition.');
+            return;
+        }
+
+        const topPrediction = predictions.sort((a, b) => b.score - a.score)[0];
+        
+        if (topPrediction.score < 0.5) {
+            this.showNotification('Low confidence. Add Gemini API key for detailed recognition.');
+            return;
+        }
+
+        const result = this.enrichObjectData(topPrediction);
+        this.currentScanResult = result;
+        
+        this.showBoundingBox(topPrediction);
+        this.displayResult(result);
+    }
+
+    async performGeminiRecognition(video) {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        const base64Image = imageData.split(',')[1];
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            {
+                                text: "Analyze this image in detail. Identify the main object/subject with extreme specificity. If it's an animal, tell me the exact species or breed. If it's a product, tell me the brand and product name. If it's a plant or tree, tell me the exact species. If it's a TV/screen showing content, tell me what show/movie appears to be playing. If it's food packaging, tell me the brand and product. Be as specific as possible. Format your response as JSON with these fields: name (specific name), category (general category), icon (emoji), uses (what it's used for), origin (where it comes from or was made), description (detailed description), warning (any safety warnings or null if none), confidence (your confidence level as a percentage string like '95%'). Be very specific in the name field - for example, 'Golden Retriever' not just 'Dog', 'McDonald's Big Mac Box' not just 'Food Container', 'Oak Tree (Quercus)' not just 'Tree'."
+                            },
+                            {
+                                inline_data: {
+                                    mime_type: 'image/jpeg',
+                                    data: base64Image
+                                }
+                            }
+                        ]
+                    }]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const text = data.candidates[0].content.parts[0].text;
+            
+            let result;
+            try {
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    result = JSON.parse(jsonMatch[0]);
+                } else {
+                    result = this.parseGeminiTextResponse(text);
+                }
+            } catch (e) {
+                result = this.parseGeminiTextResponse(text);
+            }
+
+            this.currentScanResult = result;
+            this.displayResult(result);
+            
+        } catch (error) {
+            console.error('Gemini API error:', error);
+            if (error.message.includes('API error: 400')) {
+                this.showNotification('Invalid API key. Please check your settings.');
+            } else if (error.message.includes('API error: 429')) {
+                this.showNotification('API rate limit reached. Please try again later.');
+            } else {
+                this.showNotification('AI recognition failed. Falling back to basic detection.');
+                await this.performBasicRecognition(video);
+            }
+        }
+    }
+
+    parseGeminiTextResponse(text) {
+        const lines = text.split('\n').filter(line => line.trim());
+        return {
+            name: this.extractField(text, 'name') || 'Unknown Object',
+            category: this.extractField(text, 'category') || 'General',
+            icon: this.extractField(text, 'icon') || '🔍',
+            uses: this.extractField(text, 'uses') || 'Various uses',
+            origin: this.extractField(text, 'origin') || 'Unknown origin',
+            description: this.extractField(text, 'description') || text.substring(0, 200),
+            warning: this.extractField(text, 'warning'),
+            confidence: this.extractField(text, 'confidence') || '85%'
+        };
+    }
+
+    extractField(text, field) {
+        const regex = new RegExp(`["']?${field}["']?\\s*[:=]\\s*["']?([^"',\\n}]+)["']?`, 'i');
+        const match = text.match(regex);
+        return match ? match[1].trim() : null;
     }
 
     formatObjectName(className) {
@@ -1225,12 +1366,14 @@ class WhatIsThis {
     showSettings() {
         this.showScreen('settings');
         
+        const apiKeyInput = document.getElementById('api-key-input');
         const cameraSelect = document.getElementById('camera-select');
         const scanModeSelect = document.getElementById('scan-mode-select');
         const languageSelect = document.getElementById('language-select');
         const darkModeToggle = document.getElementById('dark-mode-toggle');
         const autoSaveToggle = document.getElementById('auto-save-toggle');
         
+        if (apiKeyInput && this.geminiApiKey) apiKeyInput.value = this.geminiApiKey;
         if (cameraSelect) cameraSelect.value = this.settings.camera || 'environment';
         if (scanModeSelect) scanModeSelect.value = this.settings.scanMode || 'tap';
         if (languageSelect) languageSelect.value = this.settings.language || 'en';
@@ -1363,6 +1506,48 @@ class WhatIsThis {
             document.body.classList.add('dark-mode');
         } else {
             document.body.classList.remove('dark-mode');
+        }
+    }
+
+    loadApiKey() {
+        try {
+            const apiKey = localStorage.getItem('whatIsThis_geminiApiKey');
+            if (apiKey) {
+                const apiKeyInput = document.getElementById('api-key-input');
+                if (apiKeyInput) {
+                    apiKeyInput.value = apiKey;
+                }
+            }
+            return apiKey || null;
+        } catch (error) {
+            console.error('Failed to load API key:', error);
+            return null;
+        }
+    }
+
+    saveApiKey() {
+        const apiKeyInput = document.getElementById('api-key-input');
+        if (!apiKeyInput) return;
+
+        const apiKey = apiKeyInput.value.trim();
+        
+        if (!apiKey) {
+            this.showNotification('Please enter an API key');
+            return;
+        }
+
+        if (!apiKey.startsWith('AIza')) {
+            this.showNotification('Invalid API key format. Should start with "AIza"');
+            return;
+        }
+
+        try {
+            localStorage.setItem('whatIsThis_geminiApiKey', apiKey);
+            this.geminiApiKey = apiKey;
+            this.showNotification('API key saved! You can now use advanced AI recognition.');
+        } catch (error) {
+            console.error('Failed to save API key:', error);
+            this.showNotification('Failed to save API key');
         }
     }
 }
