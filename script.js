@@ -398,6 +398,7 @@ class WhatIsThis {
             if (this.geminiApiKey) {
                 await this.performGeminiRecognition(video);
             } else {
+                this.showNotification('Add Gemini API key in settings for unlimited object recognition!');
                 await this.performBasicRecognition(video);
             }
         } catch (error) {
@@ -415,14 +416,14 @@ class WhatIsThis {
         const predictions = await this.model.detect(video);
         
         if (predictions.length === 0) {
-            this.showNotification('No objects detected. Add Gemini API key in settings for better recognition.');
+            this.showNotification('No objects detected. Add Gemini API key in settings to recognize unlimited objects (windows, walls, furniture, etc.)!');
             return;
         }
 
         const topPrediction = predictions.sort((a, b) => b.score - a.score)[0];
         
-        if (topPrediction.score < 0.5) {
-            this.showNotification('Low confidence. Add Gemini API key for detailed recognition.');
+        if (topPrediction.score < 0.4) {
+            this.showNotification('Object not in basic database. Add Gemini API key to identify thousands more objects!');
             return;
         }
 
@@ -453,7 +454,7 @@ class WhatIsThis {
                     contents: [{
                         parts: [
                             {
-                                text: "Analyze this image in detail. Identify the main object/subject with extreme specificity. If it's an animal, tell me the exact species or breed. If it's a product, tell me the brand and product name. If it's a plant or tree, tell me the exact species. If it's a TV/screen showing content, tell me what show/movie appears to be playing. If it's food packaging, tell me the brand and product. Be as specific as possible. Format your response as JSON with these fields: name (specific name), category (general category), icon (emoji), uses (what it's used for), origin (where it comes from or was made), description (detailed description), warning (any safety warnings or null if none), confidence (your confidence level as a percentage string like '95%'). Be very specific in the name field - for example, 'Golden Retriever' not just 'Dog', 'McDonald's Big Mac Box' not just 'Food Container', 'Oak Tree (Quercus)' not just 'Tree'."
+                                text: "Analyze this image and identify EVERYTHING visible - no matter what it is. This includes: animals (exact breed/species), products (brand + name), plants/trees (exact species), food (dish name/brand), buildings/architecture (style/type), furniture, appliances, materials (wood, metal, glass, fabric), natural elements (sky, clouds, water, landscapes), vehicles (make/model), electronics, clothing, artwork, text/signs, screens (what's showing), rooms/spaces, tools, toys, and literally ANYTHING else visible. If multiple objects are present, identify the most prominent one. Be extremely specific - use brand names, species names, architectural styles, material types, etc. If it's something abstract like 'a view through a window', describe what's visible (e.g., 'Window View - Residential Neighborhood' or 'Glass Window with Outdoor Landscape'). NEVER say you can't identify something - always provide your best analysis. Format as JSON: {name: 'specific name', category: 'category', icon: 'emoji', uses: 'uses', origin: 'origin/made by', description: 'detailed description', warning: 'warning or null', confidence: 'XX%'}. Examples: 'Wooden Double-Hung Window', 'Drywall Interior Wall', 'LED Ceiling Light Fixture', 'Hardwood Oak Flooring', 'Stainless Steel Refrigerator', 'Cotton T-Shirt', 'Suburban Street View', etc."
                             },
                             {
                                 inline_data: {
