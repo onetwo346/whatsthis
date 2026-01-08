@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Point at anything. Instantly know what it is.">
+    <title>What Is This?™ - Universal Object Recognition</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+</head>
+<body>
+    
+    <!-- INTRO SCREEN -->
+    <div id="intro-screen" class="screen active">
+        <div class="intro-content">
+            <h1 class="logo pulse">WHAT IS THIS?</h1>
+            <p class="tagline">Point at anything.<br>Instantly know.</p>
+            
+            <button id="enter-btn" class="primary-btn glow">ENTER</button>
+            
+            <div class="menu-links">
+                <a href="#" id="how-it-works-link">How It Works ▸</a>
+                <a href="#" id="examples-link">Examples ▸</a>
+            </div>
+        </div>
+        
+        <div class="intro-footer">
+            <p>Tap. Scan. Know.</p>
+        </div>
+    </div>
+
+    <!-- CAMERA / AR SCREEN -->
+    <div id="camera-screen" class="screen">
+        <div class="camera-header">
+            <button id="back-btn" class="icon-btn">←</button>
+            <h2>🔍 LIVE SCAN</h2>
+            <button id="history-btn" class="icon-btn">☰</button>
+        </div>
+
+        <div class="camera-container">
+            <video id="camera-feed" autoplay playsinline></video>
+            <canvas id="camera-canvas"></canvas>
+            
+            <!-- AR Overlay -->
+            <div id="ar-overlay">
+                <div id="bounding-box" class="hidden">
+                    <div class="corner tl"></div>
+                    <div class="corner tr"></div>
+                    <div class="corner bl"></div>
+                    <div class="corner br"></div>
+                    <div id="object-label" class="hidden">
+                        <span id="object-name"></span>
+                        <span id="confidence"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scan Button -->
+            <div class="scan-controls">
+                <button id="scan-btn" class="scan-button">
+                    <div class="scan-ring"></div>
+                    <div class="scan-dot"></div>
+                </button>
+                <p class="scan-hint">Tap to Scan</p>
+            </div>
+
+            <!-- Camera Controls -->
+            <div class="camera-hints">
+                <p>↺ Double tap: Switch camera</p>
+                <p>🔍 Pinch to zoom</p>
+                <p>⬤ Hold to scan continuously</p>
+            </div>
+        </div>
+
+        <!-- Flip Camera Button -->
+        <button id="flip-camera-btn" class="floating-btn">↻</button>
+    </div>
+
+    <!-- RESULT PANEL -->
+    <div id="result-panel" class="panel hidden">
+        <div class="panel-handle"></div>
+        <div class="panel-content">
+            <button id="close-result-btn" class="close-btn">×</button>
+            
+            <div id="result-content">
+                <div class="result-header">
+                    <span id="result-icon" class="result-icon">🔍</span>
+                    <h2 id="result-name">Object Name</h2>
+                    <p id="result-category" class="category">Category</p>
+                </div>
+
+                <div class="result-details">
+                    <div class="detail-item">
+                        <strong>Uses:</strong>
+                        <p id="result-uses">-</p>
+                    </div>
+                    <div class="detail-item">
+                        <strong>Origin:</strong>
+                        <p id="result-origin">-</p>
+                    </div>
+                    <div class="detail-item warning hidden" id="warning-section">
+                        <strong>⚠️ Warning:</strong>
+                        <p id="result-warning">-</p>
+                    </div>
+                    <div class="detail-item">
+                        <strong>Description:</strong>
+                        <p id="result-description">-</p>
+                    </div>
+                </div>
+
+                <div class="result-actions">
+                    <button id="save-btn" class="action-btn">
+                        <span>💾</span> Save
+                    </button>
+                    <button id="share-btn" class="action-btn">
+                        <span>📤</span> Share
+                    </button>
+                    <button id="scan-again-btn" class="action-btn primary">
+                        Scan Again
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY SCREEN -->
+    <div id="history-screen" class="screen">
+        <div class="screen-header">
+            <button id="history-back-btn" class="icon-btn">←</button>
+            <h2>MY SCANS</h2>
+            <button id="settings-btn" class="icon-btn">⚙️</button>
+        </div>
+
+        <div class="history-content">
+            <div id="scan-history" class="scan-list">
+                <!-- Scan items will be dynamically added here -->
+            </div>
+            <div id="empty-history" class="empty-state">
+                <p>No scans yet</p>
+                <p class="hint">Start scanning to build your collection</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS SCREEN -->
+    <div id="settings-screen" class="screen">
+        <div class="screen-header">
+            <button id="settings-back-btn" class="icon-btn">←</button>
+            <h2>SETTINGS</h2>
+            <div class="icon-btn"></div>
+        </div>
+
+        <div class="settings-content">
+            <div class="setting-item">
+                <label>Camera</label>
+                <select id="camera-select">
+                    <option value="environment">Back Camera</option>
+                    <option value="user">Front Camera</option>
+                </select>
+            </div>
+
+            <div class="setting-item">
+                <label>Scan Mode</label>
+                <select id="scan-mode-select">
+                    <option value="tap">Tap to Scan</option>
+                    <option value="live">Live Scan</option>
+                </select>
+            </div>
+
+            <div class="setting-item">
+                <label>Language</label>
+                <select id="language-select">
+                    <option value="en">English</option>
+                    <option value="es">Español</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                </select>
+            </div>
+
+            <div class="setting-item">
+                <label>Dark Mode</label>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="dark-mode-toggle" checked>
+                    <span class="slider"></span>
+                </div>
+            </div>
+
+            <div class="setting-item">
+                <label>Save Scans Automatically</label>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="auto-save-toggle">
+                    <span class="slider"></span>
+                </div>
+            </div>
+
+            <div class="settings-footer">
+                <button id="clear-history-btn" class="danger-btn">Clear All History</button>
+                <p class="version">Version 1.0.0</p>
+                <p class="tagline-small">Point at anything. Instantly know.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- HOW IT WORKS MODAL -->
+    <div id="how-it-works-modal" class="modal hidden">
+        <div class="modal-content">
+            <button class="close-modal">×</button>
+            <h2>How It Works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Point Your Camera</h3>
+                    <p>Aim at any object, plant, building, or item</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Tap to Scan</h3>
+                    <p>Our AI analyzes the object in real-time</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Learn Instantly</h3>
+                    <p>Get name, category, uses, and warnings</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- EXAMPLES MODAL -->
+    <div id="examples-modal" class="modal hidden">
+        <div class="modal-content">
+            <button class="close-modal">×</button>
+            <h2>What Can You Scan?</h2>
+            <div class="examples-grid">
+                <div class="example-item">🪴 Plants & Flowers</div>
+                <div class="example-item">🏠 Buildings & Architecture</div>
+                <div class="example-item">🔌 Electronics & Devices</div>
+                <div class="example-item">🐕 Animals & Pets</div>
+                <div class="example-item">🎨 Artwork & Symbols</div>
+                <div class="example-item">🛠️ Tools & Objects</div>
+                <div class="example-item">🍄 Mushrooms & Fungi</div>
+                <div class="example-item">🪨 Rocks & Minerals</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFICATION TOAST -->
+    <div id="notification" class="notification hidden">
+        <p id="notification-text"></p>
+    </div>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <h2>Loading AI Model...</h2>
+            <p>Preparing real-time object detection</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
